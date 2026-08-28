@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>变径管路流速‑管径‑流量演示</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:"Microsoft Yahei",sans-serif}
+body{background:#f0f7ff;padding:20px;color:#222}
+.container{max-width:900px;margin:0 auto;background:#fff;padding:24px;border-radius:12px;box-shadow:0 2px 12px #00000018}
+h2{text-align:center;margin-bottom:16px;color:#1a5798}
+.desc{text-align:center;margin-bottom:20px;color:#444;line-height:1.6}
+#canvasBox{width:100%;height:320px;border:1px solid #cce0f5;border-radius:8px;overflow:hidden;background:#f8fbff;position:relative}
+canvas{display:block;width:100%;height:100%}
+.ctrl{margin-top:18px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;justify-content:center}
+button{padding:8px 18px;border:none;border-radius:6px;background:#2b7bcc;color:#fff;font-size:15px;cursor:pointer}
+button:hover{background:#1f67af}
+.info-panel{margin-top:16px;padding:14px;background:#edf4fc;border-radius:8px;line-height:1.8}
+.info-item{margin:4px 0}
+.slider-wrap{margin-top:14px}
+#posSlider{width:100%}
+.slider-info{margin-top:8px;text-align:center;font-size:16px;font-weight:500;color:#1a5798;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="container">
+    <h2>水平变径管路演示（先缩小后扩大）</h2>
+    <div class="desc">定态流动连续性方程：$Q=uA$；拖动滑块测量：管径、流速、体积流量</div>
+    <div id="canvasBox">
+        <canvas id="pipeCanvas"></canvas>
+    </div>
+    <div class="ctrl">
+        <button id="startBtn">开始流动</button>
+        <button id="pauseBtn">暂停</button>
+        <button id="resetBtn">重置</button>
+    </div>
+    <div class="slider-wrap">
+        <input type="range" id="posSlider" min="0" max="800" value="100">
+        <div class="slider-info">
+            测量位置 X：<span id="showX">100</span> px&nbsp;&nbsp;
+            管径 d：<span id="showD">110.00</span> mm&nbsp;&nbsp;
+            流速 u：<span id="showU">0.60</span> m/s&nbsp;&nbsp;
+            体积流量 Q：<span id="showQ">5.72</span> ×10⁻³ m³/s
+        </div>
+    </div>
+    <div class="info-panel">
+        <div class="info-item">① 粗管段：管径大 → 流速小；② 收缩段：管径减小 → 流速增大</div>
+        <div class="info-item">③ 细管段：管径最小，流速最大；④ 扩径段：管径回升 → 流速回落</div>
+        <div class="info-item"><b>连续性方程：定态流动体积流量Q全程不变</b>，管径与流速此消彼长</div>
+        <div class="info-item">蓝色小球：流体质点；红色虚线：滑块测量位置</div>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('pipeCanvas');
+const ctx = canvas.getContext('2d');
+const box = document.getElementById('canvasBox');
+
+const posSlider = document.getElementById('posSlider');
+const showX = document.getElementById('showX');
+const showD = document.getElementById('showD');
+const showU = document.getElementById('showU');
+const showQ = document.getElementById('showQ');
+
+function resizeCanvas(){
+    canvas.width = box.clientWidth;
+    canvas.height = box.clientHeight;
+}
+resizeCanvas();
+window.addEventListener('resize',resizeCanvas);
+
+//管路几何参数
+const pipeY = 140;
+const thickR = 55;    //粗管半径(px)
+const thinR = 24;     //细管半径(px)
+const x1 = 80;        //开始收缩位置
+const x2 = 240;       //收缩完成，细管起点
+const x3 = 440;       //开始扩径
+const x4 = 600;       //扩径完成恢复粗管
+
+//比例尺：像素与实际毫米映射，粗管半径55px 对应55mm
+const px2mm = 1.0;
+const vBase = 0.6;
+
+// 获取x位置：半径、管径、流速、流量
+function getParamsAtX(x){
+    let rNow;
+    if(x < x1){
+        rNow = thickR;
+    }else if(x >=x1 && x <x2){
+        let t = (x-x1)/(x2-x1);
+        rNow = thickR - t*(thickR-thinR);
+    }else if(x >=x2 && x <x3){
+        rNow = thinR;
+    }else if(x >=x3 && x <x4){
+        let t=(x-x3)/(x4-x3);
+        rNow = thinR + t*(thickR-thinR);
+    }else{
+        rNow = thickR;
+    }
+    // 流速：u ∝ 1/r²
+    let u = vBase * (thickR*thickR)/(rNow*rNow);
+    let d_mm = 2 * rNow * px2mm;
+    // A m²，rNow(px) → r(m)，缩放：55px = 0.055 m
+    let r_m = rNow * 0.001;
+    let A = Math.PI * r_m * r_m;
+    let Q = u * A;
+    return {rNow, d_mm, u, Q};
+}
+
+let balls = [];
+let running = false;
+let animId = null;
+
+class Ball{
+    constructor(){
+        this.x = Math.random()*200 -100;
+        this.y = pipeY;
+        this.r =7;
+    }
+    update(){
+        let p = getParamsAtX(this.x);
+        this.x += p.u;
+        if(this.x>canvas.width+20){
+            this.x = -20;
+        }
+    }
+}
+
+function drawPipe(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.save();
+    ctx.strokeStyle="#335577";
+    ctx.lineWidth=4;
+    ctx.fillStyle="#dceaf7";
+
+    ctx.beginPath();
+    ctx.moveTo(0, pipeY-thickR);
+    ctx.lineTo(x1, pipeY-thickR);
+    ctx.lineTo(x2, pipeY-thinR);
+    ctx.lineTo(x3, pipeY-thinR);
+    ctx.lineTo(x4, pipeY-thickR);
+    ctx.lineTo(canvas.width, pipeY-thickR);
+    ctx.lineTo(canvas.width, pipeY+thickR);
+    ctx.lineTo(x4, pipeY+thickR);
+    ctx.lineTo(x3, pipeY+thinR);
+    ctx.lineTo(x2, pipeY+thinR);
+    ctx.lineTo(x1, pipeY+thickR);
+    ctx.lineTo(0, pipeY+thickR);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle="#224466";
+    ctx.font="14px sans-serif";
+    ctx.fillText("粗管",40,pipeY-thickR-8);
+    ctx.fillText("收缩",(x1+x2)/2-20,pipeY-thinR-8);
+    ctx.fillText("细管(高速)",(x2+x3)/2-35,pipeY-thinR-8);
+    ctx.fillText("扩径",(x3+x4)/2-20,pipeY-thickR-8);
+    ctx.fillText("粗管",x4+60,pipeY-thickR-8);
+
+    //红色测量虚线
+    let indicatorX = Number(posSlider.value);
+    ctx.strokeStyle="#dd3333";
+    ctx.lineWidth=2;
+    ctx.setLineDash([6,4]);
+    ctx.beginPath();
+    ctx.moveTo(indicatorX, pipeY-thickR-30);
+    ctx.lineTo(indicatorX, pipeY+thickR+30);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+}
+
+function initBalls(){
+    balls=[];
+    for(let i=0;i<14;i++){
+        let b=new Ball();
+        b.x = i*45;
+        balls.push(b);
+    }
+}
+
+function loop(){
+    drawPipe();
+    if(running){
+        balls.forEach(b=>b.update());
+    }
+    balls.forEach(b=>{
+        ctx.beginPath();
+        ctx.arc(b.x,b.y,b.r,0,Math.PI*2);
+        ctx.fillStyle="#1677dd";
+        ctx.fill();
+    });
+    animId = requestAnimationFrame(loop);
+}
+
+//滑块更新全部参数
+posSlider.oninput = function(){
+    let xVal = Number(this.value);
+    let p = getParamsAtX(xVal);
+    showX.innerText = xVal;
+    showD.innerText = p.d_mm.toFixed(2);
+    showU.innerText = p.u.toFixed(2);
+    showQ.innerText = (p.Q*1000).toFixed(2);
+};
+
+document.getElementById('startBtn').onclick=()=>{running=true;};
+document.getElementById('pauseBtn').onclick=()=>{running=false;};
+document.getElementById('resetBtn').onclick=()=>{
+    running=false;
+    initBalls();
+    posSlider.value=100;
+    posSlider.oninput();
+};
+
+initBalls();
+posSlider.oninput();
+loop();
+</script>
+</body>
+</html>
