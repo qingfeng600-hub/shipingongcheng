@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>三层圆筒壁稳态热传导｜同心圆等温面</title>
+    <style>
+        * {box-sizing: border-box;margin: 0;padding: 0;font-family: "Microsoft Yahei", sans-serif;}
+        body {background: #f4f7fa;padding: 20px;max-width: 1300px;margin: 0 auto;}
+        .container {background: #fff;padding: 24px;border-radius: 12px;box-shadow: 0 2px 12px rgba(0,0,0,0.1);}
+        h2 {text-align: center;color: #2c3e50;margin-bottom: 20px;}
+        .input-wrap {display: grid;grid-template-columns: repeat(auto-fit, minmax(180px,1fr));gap:12px;margin-bottom:16px;}
+        .item label {display:block;margin-bottom:4px;color:#34495e;font-size:13px;}
+        .item input {width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px;}
+        .tip {font-size:12px;color:#666;margin:3px 0;}
+        #canvasBox {width:100%;height:580px;border:1px solid #ddd;border-radius:8px;margin:8px 0;position:relative;}
+        canvas {width:100%;height:100%;}
+        .slider-area {margin:14px 0;padding:12px;background:#f7f9fc;border-radius:8px;}
+        #posSlider {width:100%;margin:8px 0;}
+        .show-text {font-size:15px;color:#2b6cb0;font-weight:500;margin-top:6px;}
+        button {padding:7px 16px;background:#2b7bba;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;margin-bottom:10px;}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>三层圆筒壁稳态径向热传导｜多层同心圆等温面演示</h2>
+    <div class="input-wrap">
+        <div class="item">
+            <label>内层半径 r₁ (m)</label>
+            <input type="number" id="r1" value="0.08" step="0.001">
+            <div class="tip">第一层内壁</div>
+        </div>
+        <div class="item">
+            <label>层1厚度 δ₁(m)</label>
+            <input type="number" id="d1" value="0.04" step="0.001">
+            <div class="tip">第一层壁厚</div>
+        </div>
+        <div class="item">
+            <label>层2厚度 δ₂(m)</label>
+            <input type="number" id="d2" value="0.05" step="0.001">
+            <div class="tip">第二层壁厚</div>
+        </div>
+        <div class="item">
+            <label>层3厚度 δ₃(m)</label>
+            <input type="number" id="d3" value="0.06" step="0.001">
+            <div class="tip">第三层壁厚</div>
+        </div>
+        <div class="item">
+            <label>内壁温度 T₁ (℃)</label>
+            <input type="number" id="t1" value="300">
+        </div>
+        <div class="item">
+            <label>外壁温度 T4 (℃)</label>
+            <input type="number" id="t4" value="60">
+        </div>
+        <div class="item">
+            <label>λ₁ 层1 W/(m·K)</label>
+            <input type="number" id="lam1" value="45" step="0.1">
+        </div>
+        <div class="item">
+            <label>λ₂ 层2 W/(m·K)</label>
+            <input type="number" id="lam2" value="15" step="0.1">
+        </div>
+        <div class="item">
+            <label>λ₃ 层3 W/(m·K)</label>
+            <input type="number" id="lam3" value="2.5" step="0.1">
+        </div>
+    </div>
+    <button id="refreshBtn">刷新仿真</button>
+
+    <div id="canvasBox">
+        <canvas id="chartCanvas"></canvas>
+    </div>
+
+    <div class="slider-area">
+        <label>拖动滑块：观测径向半径 r</label>
+        <input type="range" id="posSlider" min="0.08" max="0.23" step="0.001" value="0.14">
+        <div class="show-text" id="infoText">r = -- m ｜温度 T = -- ℃</div>
+        <div class="tip">三层圆筒壁，各层导热系数不同，温度为分段对数曲线</div>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById("chartCanvas");
+const ctx = canvas.getContext("2d");
+const refreshBtn = document.getElementById("refreshBtn");
+const posSlider = document.getElementById("posSlider");
+const infoText = document.getElementById("infoText");
+
+function resizeCanvas(){
+    const box = document.getElementById("canvasBox");
+    canvas.width = box.clientWidth;
+    canvas.height = box.clientHeight;
+    drawAll();
+}
+window.addEventListener("resize", resizeCanvas);
+
+// 三层圆筒壁计算
+function calcMultiCylinder(r1, d1, d2, d3, T1, T4, lam1, lam2, lam3){
+    const r2 = r1 + d1;
+    const r3 = r2 + d2;
+    const r4 = r3 + d3;
+    //单位管长热流量
+    const qL = 2 * Math.PI * (T1 - T4) / ( Math.log(r2/r1)/lam1 + Math.log(r3/r2)/lam2 + Math.log(r4/r3)/lam3 );
+    //层间界面温度
+    const T2 = T1 - qL/(2*Math.PI*lam1)*Math.log(r2/r1);
+    const T3 = T2 - qL/(2*Math.PI*lam2)*Math.log(r3/r2);
+    return {r2,r3,r4,T2,T3,qL};
+}
+
+//给定r求温度
+function multiLayerTemp(r, r1,r2,r3,r4, T1,T2,T3,T4,lam1,lam2,lam3,qL){
+    if(r <= r1) return T1;
+    if(r >= r4) return T4;
+    if(r>r1 && r<=r2){
+        return T1 - qL/(2*Math.PI*lam1)*Math.log(r/r1);
+    }else if(r>r2 && r<=r3){
+        return T2 - qL/(2*Math.PI*lam2)*Math.log(r/r2);
+    }else{
+        return T3 - qL/(2*Math.PI*lam3)*Math.log(r/r3);
+    }
+}
+
+function drawCirclePx(cx,cy,pxR){
+    ctx.beginPath();
+    ctx.arc(cx, cy, pxR, 0, Math.PI*2);
+    ctx.stroke();
+}
+function drawFilledCirclePx(cx,cy,pxR){
+    ctx.beginPath();
+    ctx.arc(cx, cy, pxR, 0, Math.PI*2);
+    ctx.fill();
+}
+
+function drawAll(){
+    const r1 = Number(document.getElementById("r1").value);
+    const d1 = Number(document.getElementById("d1").value);
+    const d2 = Number(document.getElementById("d2").value);
+    const d3 = Number(document.getElementById("d3").value);
+    const T1 = Number(document.getElementById("t1").value);
+    const T4 = Number(document.getElementById("t4").value);
+    const lam1 = Number(document.getElementById("lam1").value);
+    const lam2 = Number(document.getElementById("lam2").value);
+    const lam3 = Number(document.getElementById("lam3").value);
+
+    const res = calcMultiCylinder(r1,d1,d2,d3,T1,T4,lam1,lam2,lam3);
+    const {r2,r3,r4,T2,T3,qL} = res;
+
+    if(r4 <= r1){
+        infoText.innerText = "错误：总外壁半径必须大于内壁r₁";
+        return;
+    }
+
+    posSlider.min = r1;
+    posSlider.max = r4;
+    let rObs = Number(posSlider.value);
+    rObs = Math.max(r1, Math.min(r4, rObs));
+    posSlider.value = rObs;
+    const TObs = multiLayerTemp(rObs, r1,r2,r3,r4, T1,T2,T3,T4,lam1,lam2,lam3,qL);
+
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+    const pad = {left:70, right:40, top:20, bottom:80};
+    const baseAxisLeft = pad.left;
+    const baseAxisRight = w - pad.right;
+    const basePlotW = baseAxisRight - baseAxisLeft;
+
+    //曲线图缩小30%，居中
+    const plotTotalW = basePlotW * 0.70;
+    const axisLeft = baseAxisLeft + (basePlotW - plotTotalW)/2;
+    const axisRight = axisLeft + plotTotalW;
+
+    //圆筒圆心下移，完整显示，缩放系数沿用0.384
+    const cyCenterX = axisLeft + plotTotalW / 2;
+    const cyCenterY = 120;
+    const displayMaxPxR = basePlotW / 2 * 0.85 * 0.384;
+    const scale = displayMaxPxR / r4;
+    const pxR1 = r1 * scale;
+    const pxR2 = r2 * scale;
+    const pxR3 = r3 * scale;
+    const pxR4 = r4 * scale;
+    const pxRObs = rObs * scale;
+
+    //绘制三层环形，不同底色区分各层
+    //第三层(最外层)
+    ctx.beginPath();
+    ctx.arc(cyCenterX, cyCenterY, pxR4, 0, Math.PI*2);
+    ctx.arc(cyCenterX, cyCenterY, pxR3, 0, Math.PI*2, true);
+    ctx.fillStyle="#c5d1e2";
+    ctx.fill();
+    //第二层
+    ctx.beginPath();
+    ctx.arc(cyCenterX, cyCenterY, pxR3, 0, Math.PI*2);
+    ctx.arc(cyCenterX, cyCenterY, pxR2, 0, Math.PI*2, true);
+    ctx.fillStyle="#b0c4de";
+    ctx.fill();
+    //第一层(内层)
+    ctx.beginPath();
+    ctx.arc(cyCenterX, cyCenterY, pxR2, 0, Math.PI*2);
+    ctx.arc(cyCenterX, cyCenterY, pxR1, 0, Math.PI*2, true);
+    ctx.fillStyle="#9fb8d8";
+    ctx.fill();
+
+    //各层边界线
+    ctx.strokeStyle="#222";
+    ctx.lineWidth=2;
+    drawCirclePx(cyCenterX, cyCenterY, pxR1);
+    drawCirclePx(cyCenterX, cyCenterY, pxR2);
+    drawCirclePx(cyCenterX, cyCenterY, pxR3);
+    drawCirclePx(cyCenterX, cyCenterY, pxR4);
+
+    //圆心标记 O
+    ctx.fillStyle="#000000";
+    drawFilledCirclePx(cyCenterX, cyCenterY,4);
+    ctx.font="12px sans-serif";
+    ctx.fillText("圆心 O", cyCenterX+8, cyCenterY-8);
+
+    //红色虚线观测等温同心圆
+    ctx.setLineDash([6,4]);
+    ctx.strokeStyle="#e74c3c";
+    ctx.lineWidth=2;
+    drawCirclePx(cyCenterX, cyCenterY, pxRObs);
+    ctx.setLineDash([]);
+
+    //标注界面
+    ctx.fillStyle="#c0392b";
+    ctx.fillText("r₁", cyCenterX + pxR1 + 6, cyCenterY);
+    ctx.fillStyle="#2c5282";
+    ctx.fillText("r₂", cyCenterX + pxR2 + 6, cyCenterY+14);
+    ctx.fillText("r₃", cyCenterX + pxR3 + 6, cyCenterY+28);
+    ctx.fillText("r₄", cyCenterX + pxR4 + 6, cyCenterY+42);
+    ctx.fillStyle="#c0392b";
+    ctx.fillText("等温面 r", cyCenterX + pxRObs + 6, cyCenterY -12);
+
+    //T‑r曲线图
+    const chartTop = 220;
+    const chartBot = h - pad.bottom;
+    ctx.beginPath();
+    ctx.moveTo(axisLeft, chartTop);
+    ctx.lineTo(axisLeft, chartBot);
+    ctx.lineTo(axisRight, chartBot);
+    ctx.lineWidth=2;
+    ctx.strokeStyle="#444";
+    ctx.stroke();
+
+    ctx.fillStyle="#222";
+    ctx.font="14px sans-serif";
+    ctx.fillText("径向半径 r (m)", (axisLeft+axisRight)/2 -70, h-15);
+    ctx.save();
+    ctx.translate(22, (chartTop+chartBot)/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.fillText("温度 T (℃)",0,0);
+    ctx.restore();
+
+    const tMin = Math.min(T1,T4);
+    const tMax = Math.max(T1,T4);
+
+    //分段对数温度曲线
+    ctx.beginPath();
+    const sample=400;
+    for(let i=0;i<=sample;i++){
+        const ratio = i/sample;
+        const rv = r1 + ratio*(r4-r1);
+        const tv = multiLayerTemp(rv, r1,r2,r3,r4, T1,T2,T3,T4,lam1,lam2,lam3,qL);
+        const px = axisLeft + ratio*plotTotalW;
+        const py = chartBot - ((tv-tMin)/(tMax-tMin))*(chartBot-chartTop);
+        if(i===0) ctx.moveTo(px,py);
+        else ctx.lineTo(px,py);
+    }
+    ctx.strokeStyle="#e64a19";
+    ctx.lineWidth=3;
+    ctx.stroke();
+
+    //四个边界点圆点
+    function drawPoint(rv,tv,color){
+        const ratio=(rv-r1)/(r4-r1);
+        const px=axisLeft+ratio*plotTotalW;
+        const py=chartBot - ((tv-tMin)/(tMax-tMin))*(chartBot-chartTop);
+        ctx.fillStyle=color;
+        drawFilledCirclePx(px,py,5);
+    }
+    drawPoint(r1,T1,"#d32f2f");
+    drawPoint(r2,T2,"#3182ce");
+    drawPoint(r3,T3,"#3182ce");
+    drawPoint(r4,T4,"#2b6cb0");
+
+    //观测点蓝色标记
+    const obsRatio = (rObs - r1)/(r4 - r1);
+    const obsPx = axisLeft + obsRatio*plotTotalW;
+    const obsPy = chartBot - ((TObs-tMin)/(tMax-tMin))*(chartBot-chartTop);
+    ctx.fillStyle="#2196f3";
+    drawFilledCirclePx(obsPx, obsPy,7);
+    ctx.beginPath();
+    ctx.setLineDash([4,4]);
+    ctx.moveTo(obsPx, chartTop);
+    ctx.lineTo(obsPx, chartBot);
+    ctx.strokeStyle="#2196f3";
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle="#2b6cb0";
+    ctx.font="12px sans-serif";
+    ctx.fillText(`q_L = ${qL.toFixed(2)} W/m，界面温度 T2=${T2.toFixed(2)}℃，T3=${T3.toFixed(2)}℃`, pad.left,18);
+    infoText.innerText = `观测径向半径 r = ${rObs.toFixed(4)} m ｜温度 T = ${TObs.toFixed(2)} ℃`;
+}
+
+refreshBtn.onclick = function(){ drawAll(); };
+posSlider.oninput = function(){ drawAll(); };
+
+window.onload = function(){
+    setTimeout(resizeCanvas,100);
+};
+</script>
+</body>
+</html>
