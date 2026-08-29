@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>热传导·热对流·热辐射 H5演示</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft Yahei", sans-serif;
+        }
+        body {
+            background: #f0f4f8;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 12px #00000018;
+        }
+        h1 {
+            text-align: center;
+            color:#2c3e50;
+            margin-bottom:20px;
+            font-size:24px;
+        }
+        .btn-group {
+            display:flex;
+            gap:10px;
+            justify-content:center;
+            margin-bottom:20px;
+            flex-wrap:wrap;
+        }
+        button {
+            padding:10px 18px;
+            border:none;
+            border-radius:6px;
+            background:#3498db;
+            color:#fff;
+            cursor:pointer;
+            font-size:15px;
+        }
+        button.active {
+            background:#e74c3c;
+        }
+        #canvas-wrap {
+            width:100%;
+            height:420px;
+            border:1px solid #ccc;
+            border-radius:8px;
+            background:#eef2f7;
+            position:relative;
+            overflow:hidden;
+        }
+        canvas {
+            width:100%;
+            height:100%;
+        }
+        .desc-box {
+            margin-top:16px;
+            padding:14px;
+            background:#f8fafc;
+            border-radius:8px;
+            line-height:1.7;
+            color:#333;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>热的三种传递方式演示</h1>
+    <div class="btn-group">
+        <button data-mode="conduct" class="active">🔥热传导</button>
+        <button data-mode="convect">🌊热对流</button>
+        <button data-mode="radiate">☀️热辐射</button>
+    </div>
+    <div id="canvas-wrap">
+        <canvas id="heatCanvas"></canvas>
+    </div>
+    <div class="desc-box" id="desc">
+        <strong>热传导：</strong>依靠固体内部微粒碰撞传递热量，物体不发生宏观移动。例如金属勺子一端放在热水里，另一端慢慢变热。
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('heatCanvas');
+const ctx = canvas.getContext('2d');
+const descEl = document.getElementById('desc');
+const btns = document.querySelectorAll('button[data-mode]');
+
+function resizeCanvas(){
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+}
+resizeCanvas();
+window.addEventListener('resize',resizeCanvas);
+
+let mode = "conduct";
+
+const descMap = {
+    conduct: `<strong>热传导：</strong>依靠固体内部微粒碰撞传递热量，物体不发生宏观移动。例如金属勺子一端放在热水里，另一端慢慢变热。`,
+    convect: `<strong>热对流：</strong>液体/气体受热后发生流动，靠物质本身流动搬运热量。例如烧水时热水上升、冷水下沉。`,
+    radiate: `<strong>热辐射：</strong>不需要介质，以电磁波向外发射热量，真空也可以传递。太阳向地球传递热量就是热辐射。`
+};
+
+btns.forEach(btn=>{
+    btn.onclick=()=>{
+        btns.forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        mode = btn.dataset.mode;
+        descEl.innerHTML = descMap[mode];
+    }
+})
+
+//热传导：加热阶段热源红色，金属棒从左向右变红；停止加热热源蓝色，金属棒逐步冷却
+function drawConduct(time){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const barW = canvas.width*0.7;
+    const barH = 40;
+    const x0 = (canvas.width-barW)/2;
+    const y0 = canvas.height/2 - barH/2;
+
+    const cycle = 4000;
+    const tMod = time % cycle;
+    const heating = tMod < cycle/2;
+
+    //热源：加热红色，停止加热蓝色
+    if(heating){
+        ctx.fillStyle="#ff3322";
+    }else{
+        ctx.fillStyle="#3366ff";
+    }
+    ctx.fillRect(x0-40,y0,40,barH);
+
+    let spread;
+    if(heating){
+        spread = tMod/(cycle/2);
+    }else{
+        spread = 1 - ((tMod-cycle/2)/(cycle/2));
+    }
+
+    for(let i=0;i<barW;i+=3){
+        const pos = i / barW;
+        const heat = Math.max(0, spread - pos);
+        let r = Math.min(255, 80 + heat * 175);
+        let g = Math.max(30, 130 - heat * 90);
+        let b = Math.max(50, 130 - heat * 110);
+        ctx.fillStyle=`rgb(${r},${g},${b})`;
+        ctx.fillRect(x0+i,y0,4,barH);
+    }
+    ctx.strokeStyle="#222";
+    ctx.lineWidth=2;
+    ctx.strokeRect(x0,y0,barW,barH);
+
+    ctx.fillStyle="#222";
+    ctx.font="16px sans-serif";
+    ctx.fillText(heating?"热源(加热)":"热源(停止加热)",x0-35,y0-8);
+    ctx.fillText("金属棒（固体）",x0+barW/2-60,y0-8);
+}
+
+//热对流：越靠近底部热源温度越高；上浮：橙→蓝；下落：蓝→橙，底部完全橙色
+function drawConvect(time){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const cx = canvas.width/2;
+    const cy = canvas.height/2;
+    const boxW = 320;
+    const boxH =260;
+    const bx = cx-boxW/2;
+    const by = cy-boxH/2;
+    const particleR =7;
+    const innerLeft = bx + particleR;
+    const innerRight = bx + boxW - particleR;
+    const innerTop = by + particleR;
+    const innerBottom = by + boxH - particleR -22;
+
+    ctx.strokeStyle="#333";
+    ctx.lineWidth=3;
+    ctx.strokeRect(bx,by,boxW,boxH);
+    ctx.fillStyle="#ff4433";
+    ctx.fillRect(bx,by+boxH-22,boxW,22);
+
+    for(let i=0;i<22;i++){
+        const ox = innerLeft + ((i*47)%(innerRight-innerLeft));
+        const t = time*0.0015 + i*0.4;
+        let py = innerBottom + Math.sin(t)*((innerBottom-innerTop)*0.95);
+        py = Math.max(innerTop, Math.min(innerBottom, py));
+
+        // heatFactor：底部innerBottom=1（橙色#ff8844），顶部innerTop=0（蓝色#4488dd）
+        const heatFactor = (py - innerTop) / (innerBottom - innerTop);
+        const r = Math.round(68 + heatFactor * (255 - 68));
+        const g = Math.round(136 + heatFactor * (136 - 136));
+        const b = Math.round(221 + heatFactor * (68 - 221));
+
+        ctx.beginPath();
+        ctx.arc(ox, py,particleR,0,Math.PI*2);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fill();
+    }
+    ctx.fillStyle="#222";
+    ctx.font="16px sans-serif";
+    ctx.fillText("底部热源",cx-55,by+boxH+22);
+    ctx.fillText("液体：受热上浮，遇冷下沉",cx-110,by-12);
+}
+
+//热辐射：辐射开启物体蓝→红；辐射停止物体红→蓝
+function drawRadiate(time){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const cx = canvas.width/2;
+    const cy = canvas.height*0.4;
+    const cycle = 4000;
+    const tMod = time % cycle;
+    const radiateOn = tMod < cycle/2;
+
+    //辐射源
+    ctx.beginPath();
+    ctx.arc(cx,cy,45,0,Math.PI*2);
+    let grad;
+    if(radiateOn){
+        grad = ctx.createRadialGradient(cx,cy,0,cx,cy,50);
+        grad.addColorStop(0,"#ffdd22");
+        grad.addColorStop(1,"#ff4422");
+    }else{
+        grad = ctx.createRadialGradient(cx,cy,0,cx,cy,50);
+        grad.addColorStop(0,"#9999aa");
+        grad.addColorStop(1,"#666677");
+    }
+    ctx.fillStyle=grad;
+    ctx.fill();
+
+    //辐射波纹，开启时显示，关闭时消失
+    if(radiateOn){
+        for(let i=0;i<6;i++){
+            const r = ((time*0.22 + i*70) % 320);
+            ctx.beginPath();
+            ctx.arc(cx,cy,r,0,Math.PI*2);
+            ctx.strokeStyle=`rgba(255,130,40,${Math.max(0,1-r/320)})`;
+            ctx.lineWidth=2;
+            ctx.stroke();
+        }
+    }
+
+    //被加热物体：辐射开启蓝色→红色；辐射停止红色→蓝色
+    const objX = cx;
+    const objY = canvas.height*0.78;
+    let heatFactor;
+    if(radiateOn){
+        heatFactor = tMod/(cycle/2);
+    }else{
+        heatFactor = 1 - ((tMod-cycle/2)/(cycle/2));
+    }
+    //蓝(#3366ff) 过渡到 红(#ff3322)
+    const or = Math.round(51 + heatFactor*(255-51));
+    const og = Math.round(102 + heatFactor*(51-102));
+    const ob = Math.round(255 + heatFactor*(34-255));
+    ctx.fillStyle=`rgb(${or},${og},${ob})`;
+    ctx.fillRect(objX-35,objY-25,70,50);
+
+    ctx.fillStyle="#222";
+    ctx.font="16px sans-serif";
+    ctx.fillText(radiateOn?"高温辐射源(辐射中)":"辐射源(停止辐射)",cx-65,cy-60);
+    ctx.fillText("辐射电磁波（无需介质）",cx-105,cy+110);
+    ctx.fillText("被加热物体",objX-42,objY+45);
+}
+
+function loop(timestamp){
+    if(mode==="conduct") drawConduct(timestamp);
+    else if(mode==="convect") drawConvect(timestamp);
+    else if(mode==="radiate") drawRadiate(timestamp);
+    requestAnimationFrame(loop);
+}
+loop(0);
+</script>
+</body>
+</html>
