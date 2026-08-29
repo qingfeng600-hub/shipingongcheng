@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>间壁式换热器传热演示</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:"Microsoft Yahei",sans-serif;}
+body{background:#f7f9fc;padding:20px;}
+.wrap{max-width:900px;margin:0 auto;}
+h1{text-align:center;color:#222;margin-bottom:12px;font-size:22px;}
+.desc{text-align:center;color:#555;margin-bottom:20px;line-height:1.6;}
+.canvas-box{width:100%;background:#fff;border-radius:12px;box-shadow:0 2px 12px #00000015;padding:16px;overflow:hidden;}
+#mainCanvas{width:100%;height:680px;}
+.ctrl{display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap;}
+button{padding:8px 18px;border:none;border-radius:8px;background:#2563eb;color:#fff;font-size:15px;cursor:pointer;}
+button:hover{background:#1d4ed8;}
+.info{margin-top:14px;background:#eef2ff;padding:14px;border-radius:10px;line-height:1.7;font-size:14px;color:#1e293b;}
+</style>
+</head>
+<body>
+<div class="wrap">
+    <h1>间壁式换热器传热过程演示</h1>
+    <p class="desc">高温湍流→高温侧层流内层→壁面导热→冷侧层流内层导热→边界处转为热对流进入冷湍流主体</p>
+    <div class="canvas-box">
+        <canvas id="mainCanvas"></canvas>
+    </div>
+    <div class="ctrl">
+        <button id="startBtn">启动传热动画</button>
+        <button id="stopBtn">停止动画</button>
+        <button id="resetBtn">重置</button>
+    </div>
+    <div class="info">
+🔹1.高温流体：主流区<strong>湍流（热对流）</strong>，热量传递到高温侧<strong>层流内层边界层</strong><br>
+🔹2.高温侧层流内层：仅<strong>热传导</strong>到达热侧壁面<br>
+🔹3.固体壁面：<strong>热传导</strong>到达冷侧壁面（壁内传热速度为层流内层的8倍）<br>
+🔹4.冷侧层流内层：继续依靠<strong>热传导</strong>缓慢向前移动<br>
+🔹5.到达冷侧层流内层‑湍流主体虚线界面：<strong>转为热对流</strong>，粒子剧烈扰动进入冷流体湍流主体
+    </div>
+</div>
+
+<script>
+const canvas=document.getElementById("mainCanvas");
+const ctx=canvas.getContext("2d");
+let w,h;
+
+const mainTopY = 60;
+const mainDiagramHeight = 260;
+const tempChartY = mainTopY + mainDiagramHeight + 30;
+
+let running=false;
+let particles=[];
+
+function resize(){
+    const rect=canvas.getBoundingClientRect();
+    canvas.width=rect.width;
+    canvas.height=rect.height;
+    w=canvas.width;
+    h=canvas.height;
+}
+resize();
+window.addEventListener('resize',resize);
+
+//温度曲线函数，仅用于绘制曲线
+function getCurvePointByX(x, baseY, highY, lowY){
+    const x1 = w*0.32;
+    const x2 = w*0.38;
+    const x3 = w*0.44;
+    const x4 = w*0.50;
+    let ty;
+    const totalDelta = highY - lowY;
+    const drop1 = totalDelta * 0.35;
+    const drop2 = totalDelta * 0.15 * 0.5;
+    const drop3 = totalDelta * 0.35;
+    if(x <= x1){
+        ty = highY;
+    }else if(x <= x2){
+        const t = (x - x1)/(x2 - x1);
+        ty = highY - drop1 * t;
+    }else if(x <= x3){
+        const t = (x - x2)/(x3 - x2);
+        ty = highY - drop1 - drop2 * t;
+    }else if(x <= x4){
+        const t = (x - x3)/(x4 - x3);
+        ty = highY - drop1 - drop2 - drop3 * t;
+    }else{
+        ty = highY - drop1 - drop2 - drop3;
+    }
+    return {tx:x, ty};
+}
+
+//【修复】直接用x位置归一化温度，小球移动x变化，颜色立刻变化
+function getColorByX(x){
+    const xHot = 40;
+    const xCold = w-30;
+    let normT = 1.0 - ((x - xHot)/(xCold - xHot));
+    normT = Math.max(0, Math.min(1, normT));
+    //红220,40,40  ->蓝30,80,200
+    const r = Math.round(220 * normT + 30 * (1-normT));
+    const g = Math.round(40 * normT + 80 * (1-normT));
+    const b = Math.round(40 * normT + 200 * (1-normT));
+    return `rgb(${r},${g},${b})`;
+}
+
+class HeatParticle{
+    constructor(yPos){
+        this.reset(yPos);
+    }
+    reset(yPos){
+        this.x=40;
+        this.y = yPos;
+        this.vx=1.4;
+        this.vy=0;
+        this.stage=0;
+        this.r=6;
+    }
+    update(){
+        switch(this.stage){
+            case 0:{
+                this.x+=this.vx;
+                if(this.x>w*0.32){
+                    this.stage=1;
+                }
+                break;
+            }
+            case 1:{
+                this.x+=this.vx*0.22;
+                if(this.x>w*0.38){
+                    this.stage=2;
+                }
+                break;
+            }
+            case 2:{
+                this.x+=this.vx*0.22*8;
+                if(this.x>w*0.44){
+                    this.stage=3;
+                }
+                break;
+            }
+            case 3:{
+                this.x+=this.vx*0.22;
+                if(this.x>w*0.50){
+                    this.stage=4;
+                }
+                break;
+            }
+            case 4:{
+                this.x+=this.vx;
+                if(this.x>w-30){
+                    this.reset(this.y);
+                }
+                break;
+            }
+        }
+    }
+    draw(){
+        const color = getColorByX(this.x);
+        ctx.beginPath();
+        ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
+        ctx.fillStyle=color;
+        ctx.fill();
+    }
+}
+
+function drawTemperatureCurve(){
+    const baseY = tempChartY + 220;
+    const highY = baseY - 210;
+    const lowY  = baseY - 10;
+
+    ctx.save();
+    ctx.lineWidth=2.5;
+    ctx.strokeStyle="#dc2626";
+    ctx.beginPath();
+    ctx.moveTo(0, highY);
+    ctx.lineTo(w*0.32, highY);
+    const p2x = w*0.38, p2y = getCurvePointByX(p2x,baseY,highY,lowY).ty;
+    ctx.lineTo(p2x,p2y);
+    const p3x = w*0.44, p3y = getCurvePointByX(p3x,baseY,highY,lowY).ty;
+    ctx.lineTo(p3x,p3y);
+    const p4x = w*0.50, p4y = getCurvePointByX(p4x,baseY,highY,lowY).ty;
+    ctx.lineTo(p4x,p4y);
+    ctx.lineTo(w, p4y);
+    ctx.stroke();
+
+    ctx.setLineDash([3,3]);
+    ctx.strokeStyle="#888";
+    ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.moveTo(0,baseY-215);ctx.lineTo(0,baseY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font="12px sans-serif";
+    ctx.fillStyle="#444";
+    ctx.fillText("温度",4, baseY-212);
+    ctx.fillText("Tₕ",8, highY-4);
+    ctx.fillText("T_c",8, p4y+12);
+    ctx.fillText("温度分布曲线",w*0.38, baseY+22);
+
+    ctx.strokeStyle="#666";
+    function markX(x){
+        ctx.beginPath();ctx.moveTo(x,baseY-215);ctx.lineTo(x,baseY-205);ctx.stroke();
+    }
+    markX(w*0.32);
+    markX(w*0.38);
+    markX(w*0.44);
+    markX(w*0.50);
+
+    //曲线上跟随小球，颜色与上方小球完全一致
+    for(let p of particles){
+        const cp = getCurvePointByX(p.x, baseY, highY, lowY);
+        const dotColor = getColorByX(p.x);
+        ctx.setLineDash([4,4]);
+        ctx.strokeStyle="#444444";
+        ctx.lineWidth=1;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(cp.tx, cp.ty);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.beginPath();
+        ctx.arc(cp.tx, cp.ty,5,0,Math.PI*2);
+        ctx.fillStyle=dotColor;
+        ctx.fill();
+    }
+    ctx.restore();
+}
+
+function drawScene(){
+    ctx.clearRect(0,0,w,h);
+    const baseY = tempChartY + 220;
+
+    ctx.fillStyle="#fee2e2";
+    ctx.fillRect(0,mainTopY,w*0.38,mainDiagramHeight);
+    ctx.fillStyle="#94a3b8";
+    ctx.fillRect(w*0.38,mainTopY,w*0.06,mainDiagramHeight);
+    ctx.fillStyle="#dbeafe";
+    ctx.fillRect(w*0.44,mainTopY,w*0.56,mainDiagramHeight);
+
+    ctx.setLineDash([6,4]);
+    ctx.lineWidth=2;
+    ctx.strokeStyle="#c2410c";
+    ctx.beginPath();
+    ctx.moveTo(w*0.32, mainTopY);
+    ctx.lineTo(w*0.32, mainTopY+mainDiagramHeight);
+    ctx.stroke();
+    ctx.strokeStyle="#1e40af";
+    ctx.beginPath();
+    ctx.moveTo(w*0.50, mainTopY);
+    ctx.lineTo(w*0.50, mainTopY+mainDiagramHeight);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.font="14px sans-serif";
+    ctx.fillStyle="#b91c1c";
+    ctx.fillText("高温流体（湍流·热对流）",10, mainTopY-12);
+    ctx.fillText("高温侧层流内层（热传导）",w*0.16, mainTopY-26);
+    ctx.fillStyle="#1e293b";
+    ctx.fillText("固体壁面（热传导）",w*0.35, mainTopY-12);
+    ctx.fillStyle="#1d4ed8";
+    ctx.fillText("冷侧层流内层（热传导）",w*0.41, mainTopY+mainDiagramHeight+20);
+    ctx.fillText("冷流体（湍流·热对流）",w*0.58, mainTopY+mainDiagramHeight+36);
+
+    ctx.strokeStyle="#444";
+    ctx.lineWidth=2;
+    ctx.strokeRect(0,mainTopY,w,mainDiagramHeight);
+
+    drawTemperatureCurve();
+
+    for(let p of particles){
+        p.draw();
+    }
+}
+
+function loop(){
+    if(!running) return;
+    for(let p of particles){
+        p.update();
+    }
+    drawScene();
+    requestAnimationFrame(loop);
+}
+
+document.getElementById("startBtn").onclick=()=>{
+    if(running)return;
+    running=true;
+    particles=[];
+    const count = 7;
+    const yStart = mainTopY + 40;
+    const yEnd = mainTopY + mainDiagramHeight -40;
+    for(let i=0;i<count;i++){
+        const yPos = yStart + (yEnd - yStart)/(count-1)*i;
+        particles.push(new HeatParticle(yPos));
+    }
+    loop();
+}
+document.getElementById("stopBtn").onclick=()=>{
+    running=false;
+}
+document.getElementById("resetBtn").onclick=()=>{
+    running=false;
+    particles=[];
+    drawScene();
+}
+
+window.addEventListener("load",()=>{
+    resize();
+    drawScene();
+});
+</script>
+</body>
+</html>
