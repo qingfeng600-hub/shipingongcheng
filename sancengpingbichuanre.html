@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>三层平壁稳态热传导‑等温面演示</title>
+    <style>
+        * {box-sizing: border-box;margin: 0;padding: 0;font-family: "Microsoft Yahei", sans-serif;}
+        body {background: #f4f7fa;padding: 20px;max-width: 1300px;margin: 0 auto;}
+        .container {background: #fff;padding: 24px;border-radius: 12px;box-shadow: 0 2px 12px rgba(0,0,0,0.1);}
+        h2 {text-align: center;color: #2c3e50;margin-bottom: 20px;}
+        .input-wrap {display: grid;grid-template-columns: repeat(auto-fit, minmax(180px,1fr));gap:12px;margin-bottom:18px;}
+        .item label {display:block;margin-bottom:4px;color:#34495e;font-size:14px;}
+        .item input {width:100%;padding:6px 8px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px;}
+        .tip {font-size:13px;color:#666;margin:4px 0;}
+        #canvasBox {width:100%;height:520px;border:1px solid #ddd;border-radius:8px;margin:8px 0;position:relative;}
+        canvas {width:100%;height:100%;}
+        .slider-area {margin:16px 0;padding:14px;background:#f7f9fc;border-radius:8px;}
+        #posSlider {width:100%;margin:10px 0;}
+        .show-text {font-size:16px;color:#2b6cb0;font-weight:500;margin-top:8px;}
+        button {padding:8px 18px;background:#2b7bba;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>三层串联平壁稳态一维热传导｜等温面演示</h2>
+    <div class="input-wrap">
+        <div class="item">
+            <label>层1厚度δ₁(m)</label>
+            <input type="number" id="d1" value="0.1" step="0.01">
+        </div>
+        <div class="item">
+            <label>层1导热λ₁(W/(m·K))</label>
+            <input type="number" id="lam1" value="45" step="0.1">
+        </div>
+        <div class="item">
+            <label>层2厚度δ₂(m)</label>
+            <input type="number" id="d2" value="0.12" step="0.01">
+        </div>
+        <div class="item">
+            <label>层2导热λ₂(W/(m·K))</label>
+            <input type="number" id="lam2" value="1.2" step="0.1">
+        </div>
+        <div class="item">
+            <label>层3厚度δ₃(m)</label>
+            <input type="number" id="d3" value="0.08" step="0.01">
+        </div>
+        <div class="item">
+            <label>层3导热λ₃(W/(m·K))</label>
+            <input type="number" id="lam3" value="30" step="0.1">
+        </div>
+        <div class="item">
+            <label>高温侧T₁(℃)</label>
+            <input type="number" id="tHot" value="300">
+        </div>
+        <div class="item">
+            <label>低温侧T4(℃)</label>
+            <input type="number" id="tCold" value="80">
+        </div>
+    </div>
+    <button id="refreshBtn">刷新仿真</button>
+
+    <div id="canvasBox">
+        <canvas id="chartCanvas"></canvas>
+    </div>
+
+    <div class="slider-area">
+        <label>拖动滑块移动观测位置（距离高温面x）</label>
+        <input type="range" id="posSlider" min="0" max="0.3" step="0.001" value="0.15">
+        <div class="show-text" id="infoText">x = -- m ｜温度 T = -- ℃</div>
+        <div class="tip">三层串联稳态导热；总热阻R=δ₁/λ₁+δ₂/λ₂+δ₃/λ₃；热流密度q=ΔT/R；每层内部温度线性分布</div>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById("chartCanvas");
+const ctx = canvas.getContext("2d");
+const refreshBtn = document.getElementById("refreshBtn");
+const posSlider = document.getElementById("posSlider");
+const infoText = document.getElementById("infoText");
+
+function resizeCanvas(){
+    const box = document.getElementById("canvasBox");
+    canvas.width = box.clientWidth;
+    canvas.height = box.clientHeight;
+    drawAll();
+}
+window.addEventListener("resize", resizeCanvas);
+
+// 三层串联平壁计算：返回 [x总厚度, x分界点数组, 各层界面温度, q热流密度]
+function calcThreeLayer(d1,d2,d3,lam1,lam2,lam3,T1,T4){
+    const R1 = d1/lam1;
+    const R2 = d2/lam2;
+    const R3 = d3/lam3;
+    const Rtotal = R1+R2+R3;
+    const q = (T1-T4)/Rtotal;
+    const T2 = T1 - q*R1;
+    const T3 = T2 - q*R2;
+    const deltaTotal = d1+d2+d3;
+    const x1 = d1;
+    const x2 = d1+d2;
+    return {deltaTotal,xPoints:[0,x1,x2,deltaTotal],tPoints:[T1,T2,T3,T4],q,R:[R1,R2,R3]};
+}
+
+// 根据距离高温面x求温度
+function getThreeLayerT(x,calcRes){
+    const {xPoints,tPoints} = calcRes;
+    if(x<=xPoints[0]) return tPoints[0];
+    if(x>=xPoints[3]) return tPoints[3];
+    let t;
+    if(x <= xPoints[1]){
+        t = tPoints[0] - (tPoints[0]-tPoints[1])*(x-xPoints[0])/(xPoints[1]-xPoints[0]);
+    }else if(x <= xPoints[2]){
+        t = tPoints[1] - (tPoints[1]-tPoints[2])*(x-xPoints[1])/(xPoints[2]-xPoints[1]);
+    }else{
+        t = tPoints[2] - (tPoints[2]-tPoints[3])*(x-xPoints[2])/(xPoints[3]-xPoints[2]);
+    }
+    return t;
+}
+
+function drawCircle(x,y,r){
+    ctx.beginPath();
+    ctx.arc(x,y,r,0,Math.PI*2);
+    ctx.fill();
+}
+
+function drawAll(){
+    const d1 = Number(document.getElementById("d1").value);
+    const d2 = Number(document.getElementById("d2").value);
+    const d3 = Number(document.getElementById("d3").value);
+    const lam1 = Number(document.getElementById("lam1").value);
+    const lam2 = Number(document.getElementById("lam2").value);
+    const lam3 = Number(document.getElementById("lam3").value);
+    const THot = Number(document.getElementById("tHot").value);
+    const TCold = Number(document.getElementById("tCold").value);
+
+    const calcRes = calcThreeLayer(d1,d2,d3,lam1,lam2,lam3,THot,TCold);
+    const {deltaTotal,xPoints,tPoints,q} = calcRes;
+
+    // 更新滑块量程
+    posSlider.max = deltaTotal;
+    let xObs = Number(posSlider.value);
+    if(xObs>deltaTotal) xObs = deltaTotal;
+    posSlider.value = xObs;
+    const TObs = getThreeLayerT(xObs,calcRes);
+
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+    const pad = {left:70, right:40, top:30, bottom:80};
+    const axisLeft = pad.left;
+    const axisRight = w - pad.right;
+    const plotTotalW = axisRight - axisLeft;
+
+    //========上方三层平壁矩形，左右与曲线图严格对齐========
+    const wallTop = 60;
+    const wallBot = 200;
+    // 三层填充色
+    const colors = ["#d7dde8","#b8c8e0","#98b2d8"];
+    // 计算每层像素宽度
+    for(let i=0;i<3;i++){
+        const x0 = xPoints[i];
+        const x1 = xPoints[i+1];
+        const px0 = axisLeft + (x0/deltaTotal)*plotTotalW;
+        const px1 = axisLeft + (x1/deltaTotal)*plotTotalW;
+        ctx.fillStyle = colors[i];
+        ctx.fillRect(px0, wallTop, px1-px0, wallBot-wallTop);
+    }
+    // 整体外框
+    ctx.strokeStyle="#222";
+    ctx.lineWidth=2;
+    ctx.strokeRect(axisLeft, wallTop, plotTotalW, wallBot-wallTop);
+    // 层间分隔线
+    ctx.setLineDash([]);
+    ctx.strokeStyle="#444";
+    ctx.lineWidth=1.5;
+    for(let i=1;i<=2;i++){
+        const px = axisLeft + (xPoints[i]/deltaTotal)*plotTotalW;
+        ctx.beginPath();
+        ctx.moveTo(px,wallTop);
+        ctx.lineTo(px,wallBot);
+        ctx.stroke();
+    }
+    // 壁面文字标注
+    ctx.fillStyle="#c0392b";
+    ctx.font="13px sans-serif";
+    ctx.fillText("高温面 T₁", axisLeft-55, (wallTop+wallBot)/2);
+    ctx.fillStyle="#2980b9";
+    ctx.fillText("低温面 T₄", axisRight+8, (wallTop+wallBot)/2);
+
+    // 观测等温面虚线
+    const isoX = axisLeft + (xObs/deltaTotal)*plotTotalW;
+    ctx.beginPath();
+    ctx.setLineDash([6,4]);
+    ctx.moveTo(isoX, wallTop);
+    ctx.lineTo(isoX, wallBot);
+    ctx.strokeStyle="#e74c3c";
+    ctx.lineWidth=2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle="#c0392b";
+    ctx.fillText("等温面",isoX+5,wallTop-8);
+
+    //========下方温度‑距离曲线图 X轴和平壁左右对齐========
+    const chartTop = 260;
+    const chartBot = h - pad.bottom;
+    //坐标轴
+    ctx.beginPath();
+    ctx.moveTo(axisLeft, chartTop);
+    ctx.lineTo(axisLeft, chartBot);
+    ctx.lineTo(axisRight, chartBot);
+    ctx.lineWidth=2;
+    ctx.strokeStyle="#444";
+    ctx.stroke();
+
+    ctx.fillStyle="#222";
+    ctx.font="14px sans-serif";
+    ctx.fillText("距离高温壁面 x (m)", (axisLeft+axisRight)/2 -80, h-15);
+    ctx.save();
+    ctx.translate(22, (chartTop+chartBot)/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.fillText("温度 T (℃)",0,0);
+    ctx.restore();
+
+    const tMin = Math.min(...tPoints);
+    const tMax = Math.max(...tPoints);
+
+    // 分段绘制三段温度直线
+    ctx.beginPath();
+    for(let seg=0;seg<3;seg++){
+        const x0 = xPoints[seg];
+        const t0 = tPoints[seg];
+        const x1 = xPoints[seg+1];
+        const t1 = tPoints[seg+1];
+        const sampleSeg = 80;
+        for(let i=0;i<=sampleSeg;i++){
+            const r = i/sampleSeg;
+            const xv = x0 + r*(x1-x0);
+            const tv = t0 - (t0-t1)*r;
+            const px = axisLeft + (xv/deltaTotal)*plotTotalW;
+            const py = chartBot - ((tv-tMin)/(tMax-tMin))*(chartBot-chartTop);
+            if(seg===0&&i===0) ctx.moveTo(px,py);
+            else ctx.lineTo(px,py);
+        }
+    }
+    ctx.strokeStyle="#e64a19";
+    ctx.lineWidth=3;
+    ctx.stroke();
+
+    // 四个界面圆点
+    for(let i=0;i<4;i++){
+        const px = axisLeft + (xPoints[i]/deltaTotal)*plotTotalW;
+        const py = chartBot - ((tPoints[i]-tMin)/(tMax-tMin))*(chartBot-chartTop);
+        ctx.fillStyle="#d32f2f";
+        drawCircle(px,py,5);
+    }
+
+    // 当前观测点，与上方等温面同一像素X
+    const obsPx = isoX;
+    const obsPy = chartBot - ((TObs-tMin)/(tMax-tMin))*(chartBot-chartTop);
+    ctx.fillStyle="#2196f3";
+    drawCircle(obsPx, obsPy,7);
+    ctx.beginPath();
+    ctx.setLineDash([4,4]);
+    ctx.moveTo(obsPx, chartTop);
+    ctx.lineTo(obsPx, chartBot);
+    ctx.strokeStyle="#2196f3";
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    //输出热流
+    ctx.fillStyle="#2b6cb0";
+    ctx.font="13px sans-serif";
+    ctx.fillText(`总厚度=${deltaTotal.toFixed(3)}m，热流密度 q = ${q.toFixed(2)} W/m²`, pad.left,18);
+
+    infoText.innerText = `观测位置：距离高温面 x = ${xObs.toFixed(3)} m ｜等温面温度 T = ${TObs.toFixed(2)} ℃`;
+}
+
+refreshBtn.onclick = function(){
+    drawAll();
+}
+posSlider.oninput = function(){
+    drawAll();
+}
+window.onload = function(){
+    resizeCanvas();
+}
+</script>
+</body>
+</html>
