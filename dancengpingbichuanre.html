@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>单层平壁稳态热传导‑等温面演示</title>
+    <style>
+        * {box-sizing: border-box;margin: 0;padding: 0;font-family: "Microsoft Yahei", sans-serif;}
+        body {background: #f4f7fa;padding: 20px;max-width: 1200px;margin: 0 auto;}
+        .container {background: #fff;padding: 24px;border-radius: 12px;box-shadow: 0 2px 12px rgba(0,0,0,0.1);}
+        h2 {text-align: center;color: #2c3e50;margin-bottom: 20px;}
+        .input-wrap {display: grid;grid-template-columns: repeat(auto-fit, minmax(210px,1fr));gap:14px;margin-bottom:18px;}
+        .item label {display:block;margin-bottom:5px;color:#34495e;}
+        .item input {width:100%;padding:7px 9px;border:1px solid #cbd5e0;border-radius:6px;font-size:15px;}
+        .tip {font-size:13px;color:#666;margin:4px 0;}
+        #canvasBox {width:100%;height:480px;border:1px solid #ddd;border-radius:8px;margin:8px 0;position:relative;}
+        canvas {width:100%;height:100%;}
+        .slider-area {margin:16px 0;padding:14px;background:#f7f9fc;border-radius:8px;}
+        #posSlider {width:100%;margin:10px 0;}
+        .show-text {font-size:16px;color:#2b6cb0;font-weight:500;margin-top:8px;}
+        button {padding:8px 18px;background:#2b7bba;color:#fff;border:none;border-radius:6px;font-size:15px;cursor:pointer;}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>单层平壁稳态一维热传导｜平壁矩形+等温面演示</h2>
+    <div class="input-wrap">
+        <div class="item">
+            <label>平壁厚度 δ (m)</label>
+            <input type="number" id="delta" value="0.2" step="0.01">
+            <div class="tip">平壁总厚度</div>
+        </div>
+        <div class="item">
+            <label>高温侧温度 T₁ (℃)</label>
+            <input type="number" id="t1" value="300">
+            <div class="tip">左侧x=0，高温壁面</div>
+        </div>
+        <div class="item">
+            <label>低温侧温度 T₂ (℃)</label>
+            <input type="number" id="t2" value="80">
+            <div class="tip">右侧x=δ，低温壁面</div>
+        </div>
+        <div class="item">
+            <label>导热系数 λ (W/(m·K))</label>
+            <input type="number" id="lambda" value="45" step="0.1">
+            <div class="tip">均质平壁导热系数</div>
+        </div>
+    </div>
+    <button id="refreshBtn">刷新仿真</button>
+
+    <div id="canvasBox">
+        <canvas id="chartCanvas"></canvas>
+    </div>
+
+    <div class="slider-area">
+        <label>拖动滑块，移动壁内观测位置（距离高温面x）</label>
+        <input type="range" id="posSlider" min="0" max="0.2" step="0.001" value="0.1">
+        <div class="show-text" id="infoText">x = 0.100 m ；温度 T = -- ℃</div>
+        <div class="tip">一维导热：垂直于热流方向的竖直虚线为等温面；T(x)=T₁−(T₁‑T₂)/δ·x</div>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById("chartCanvas");
+const ctx = canvas.getContext("2d");
+const refreshBtn = document.getElementById("refreshBtn");
+const posSlider = document.getElementById("posSlider");
+const infoText = document.getElementById("infoText");
+
+function resizeCanvas(){
+    const box = document.getElementById("canvasBox");
+    canvas.width = box.clientWidth;
+    canvas.height = box.clientHeight;
+    drawAll();
+}
+window.addEventListener("resize", resizeCanvas);
+
+//稳态平壁温度计算
+function calcT(x, delta, T1, T2){
+    if(x <= 0) return T1;
+    if(x >= delta) return T2;
+    return T1 - ((T1 - T2)/delta)*x;
+}
+
+function drawCircle(x,y,r){
+    ctx.beginPath();
+    ctx.arc(x,y,r,0,Math.PI*2);
+    ctx.fill();
+}
+
+function drawAll(){
+    const delta = Number(document.getElementById("delta").value);
+    const T1 = Number(document.getElementById("t1").value);
+    const T2 = Number(document.getElementById("t2").value);
+    const lambda = Number(document.getElementById("lambda").value);
+    let xObs = Number(posSlider.value);
+
+    posSlider.max = delta;
+    if(xObs>delta) xObs = delta;
+    posSlider.value = xObs;
+
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+    const pad = {left:70, right:40, top:30, bottom:80};
+
+    // 统一左右边界：平壁矩形 和 曲线图X轴 完全对齐
+    const axisLeft = pad.left;
+    const axisRight = w - pad.right;
+    const plotTotalW = axisRight - axisLeft;
+
+    //========上方平壁矩形（左右边界与X轴严格对齐）========
+    const wallTop = 60;
+    const wallBot = 200;
+    const wallLeft = axisLeft;
+    const wallRight = axisRight;
+    ctx.fillStyle="#d8dee8";
+    ctx.fillRect(wallLeft, wallTop, wallRight-wallLeft, wallBot-wallTop);
+    ctx.strokeStyle="#333";
+    ctx.lineWidth=2;
+    ctx.strokeRect(wallLeft, wallTop, wallRight-wallLeft, wallBot-wallTop);
+
+    //壁面标注
+    ctx.fillStyle="#c0392b";
+    ctx.font="14px sans-serif";
+    ctx.fillText("高温面 T₁", wallLeft-55, (wallTop+wallBot)/2);
+    ctx.fillStyle="#2980b9";
+    ctx.fillText("低温面 T₂", wallRight+8, (wallTop+wallBot)/2);
+
+    //滑块对应等温面（竖直虚线，一维导热等温面垂直热流）
+    const isoX = wallLeft + (xObs/delta)*plotTotalW;
+    ctx.beginPath();
+    ctx.setLineDash([6,4]);
+    ctx.moveTo(isoX, wallTop);
+    ctx.lineTo(isoX, wallBot);
+    ctx.strokeStyle="#e74c3c";
+    ctx.lineWidth=2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle="#c0392b";
+    ctx.fillText("等温面",isoX+5,wallTop-8);
+
+    //========下方温度‑x曲线图（X轴左右与平壁完全对齐）========
+    const chartTop = 260;
+    const chartBot = h - pad.bottom;
+
+    //坐标轴
+    ctx.beginPath();
+    ctx.moveTo(axisLeft, chartTop);
+    ctx.lineTo(axisLeft, chartBot);
+    ctx.lineTo(axisRight, chartBot);
+    ctx.lineWidth=2;
+    ctx.strokeStyle="#444";
+    ctx.stroke();
+
+    ctx.fillStyle="#222";
+    ctx.font="14px sans-serif";
+    ctx.fillText("距离高温壁面 x (m)", (axisLeft+axisRight)/2 -80, h-15);
+    ctx.save();
+    ctx.translate(22, (chartTop+chartBot)/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.fillText("温度 T (℃)",0,0);
+    ctx.restore();
+
+    const tMin = Math.min(T1,T2);
+    const tMax = Math.max(T1,T2);
+
+    //绘制温度直线
+    ctx.beginPath();
+    const sample=200;
+    for(let i=0;i<=sample;i++){
+        const ratio = i/sample;
+        const xv = ratio*delta;
+        const tv = calcT(xv,delta,T1,T2);
+        const px = axisLeft + ratio*plotTotalW;
+        const py = chartBot - ((tv-tMin)/(tMax-tMin))*(chartBot-chartTop);
+        i===0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+    }
+    ctx.strokeStyle="#e64a19";
+    ctx.lineWidth=3;
+    ctx.stroke();
+
+    //两端点
+    const p0x = axisLeft;
+    const p0y = chartBot - ((T1-tMin)/(tMax-tMin))*(chartBot-chartTop);
+    const pdx = axisRight;
+    const pdy = chartBot - ((T2-tMin)/(tMax-tMin))*(chartBot-chartTop);
+    ctx.fillStyle="#d32f2f";
+    drawCircle(p0x,p0y,5);
+    drawCircle(pdx,pdy,5);
+
+    //观测点，X坐标和上方等温面完全同一个x像素
+    const TObs = calcT(xObs,delta,T1,T2);
+    const obsPx = isoX;
+    const obsPy = chartBot - ((TObs-tMin)/(tMax-tMin))*(chartBot-chartTop);
+    ctx.fillStyle="#2196f3";
+    drawCircle(obsPx, obsPy,7);
+    ctx.beginPath();
+    ctx.setLineDash([4,4]);
+    ctx.moveTo(obsPx, chartTop);
+    ctx.lineTo(obsPx, chartBot);
+    ctx.strokeStyle="#2196f3";
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    //热流密度
+    const q = lambda*(T1-T2)/delta;
+    ctx.fillStyle="#2b6cb0";
+    ctx.fillText(`λ=${lambda} W/(m·K)，热流密度 q=${q.toFixed(2)} W/m²`, pad.left,18);
+
+    infoText.innerText = `观测位置：距离高温面 x = ${xObs.toFixed(3)} m ｜等温面温度 T = ${TObs.toFixed(2)} ℃`;
+}
+
+refreshBtn.onclick = function(){
+    drawAll();
+}
+posSlider.oninput = function(){
+    drawAll();
+}
+window.onload = function(){
+    resizeCanvas();
+}
+</script>
+</body>
+</html>
