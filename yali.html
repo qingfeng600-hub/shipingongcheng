@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>绝对压力‑表压力‑真空度关系演示</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:"Microsoft Yahei",sans-serif}
+body{background:#f0f4f8;padding:20px;color:#222}
+.container{max-width:880px;margin:0 auto;background:#fff;padding:24px;border-radius:12px;box-shadow:0 2px 12px #00000018}
+h1{text-align:center;font-size:22px;margin-bottom:20px;color:#1f4e96}
+.formula{background:#e8f0fc;padding:12px;border-radius:8px;margin:16px 0;line-height:1.8}
+.main-row{display:flex;gap:20px;align-items:center}
+.canvas-wrap{flex:1;height:360px;border:1px solid #cbd5e1;border-radius:8px;position:relative;overflow:hidden}
+#barCanvas{width:100%;height:100%}
+.slider-vert-wrap{width:70px;height:360px;display:flex;align-items:center;justify-content:center}
+/* 垂直滑块，高度与画布完全匹配 */
+input[type="range"].vertical-slider{
+    width:360px;
+    height:10px;
+    transform-origin:center center;
+    transform:rotate(-90deg);
+}
+.input-line{display:flex;align-items:center;justify-content:center;gap:10px;margin:10px 0}
+.input-line label{font-weight:500}
+#paInput{width:100px;padding:6px 8px;font-size:16px}
+.result-box{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:20px}
+.card{background:#f7f9fc;padding:14px;border-radius:8px;text-align:center}
+.val{font-size:20px;font-weight:bold;margin-top:6px;color:#c0392b}
+.note{margin-top:24px;font-size:14px;color:#555;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>绝对压力、表压力、真空度关系演示</h1>
+    <div class="formula">
+        <strong>基础公式：</strong><br>
+        绝对压力 Pₐ = 大气压力 P₀ + 表压力 P₉<br>
+        当 Pₐ ＜ P₀ 时：真空度 = 大气压力 P₀ − 绝对压力 Pₐ<br>
+        设定本地大气压 P₀ = 101.3 kPa（标准大气压）
+    </div>
+
+    <div class="main-row">
+        <div class="canvas-wrap">
+            <canvas id="barCanvas"></canvas>
+        </div>
+        <div class="slider-vert-wrap">
+            <input type="range" id="PaSlider" class="vertical-slider" min="0" max="200" value="101.3" step="0.1">
+        </div>
+    </div>
+
+    <div class="input-line">
+        <label>绝对压力 Pₐ (kPa)：</label>
+        <input id="paInput" type="number" min="0" max="200" step="0.1" value="101.3">
+        <span id="PaText">101.3 kPa</span>
+    </div>
+
+    <div class="result-box">
+        <div class="card">
+            <div>表压力 P₉</div>
+            <div class="val" id="PgVal">0.00 kPa</div>
+        </div>
+        <div class="card">
+            <div>真空度</div>
+            <div class="val" id="VacVal">0.00 kPa</div>
+        </div>
+        <div class="card">
+            <div>状态</div>
+            <div class="val" id="status">常压</div>
+        </div>
+    </div>
+
+    <div class="note">
+        说明：<br>
+        1. 绝对压力＞大气压：存在表压力，无真空度；<br>
+        2. 绝对压力＝大气压：表压=0，真空度=0；<br>
+        3. 绝对压力＜大气压：无表压力，存在真空度；<br>
+        4. 绝对压力=0：理论完全真空。
+    </div>
+</div>
+
+<script>
+const P0 = 101.3; // 标准大气压 kPa
+const canvas = document.getElementById("barCanvas");
+const ctx = canvas.getContext("2d");
+const slider = document.getElementById("PaSlider");
+const paInput = document.getElementById("paInput");
+const paText = document.getElementById("PaText");
+const pgVal = document.getElementById("PgVal");
+const vacVal = document.getElementById("VacVal");
+const statusDom = document.getElementById("status");
+
+// 统一更新所有控件
+function setPaValue(val){
+    let v = Number(val);
+    if(isNaN(v)) v=0;
+    v = Math.max(0, Math.min(200, v));
+    slider.value = v;
+    paInput.value = v.toFixed(1);
+    render();
+}
+
+function resizeCanvas(){
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+    render();
+}
+window.addEventListener('resize',resizeCanvas);
+
+function calc(Pa){
+    const Pg = Pa - P0;
+    let vac = 0;
+    let status = "";
+    let showPgText = "";
+    if(Pa > P0){
+        status = "正压";
+        showPgText = Pg.toFixed(2)+" kPa";
+    }else if(Math.abs(Pa-P0)<0.01){
+        status = "常压";
+        showPgText = "0.00 kPa";
+    }else{
+        vac = P0 - Pa;
+        status = "真空";
+        showPgText = "无";
+    }
+    return {Pg,vac,status,showPgText};
+}
+
+function render(){
+    const Pa = Number(slider.value);
+    paInput.value = Pa.toFixed(1);
+    paText.innerText = Pa.toFixed(1)+" kPa";
+    const {vac,status,showPgText} = calc(Pa);
+    pgVal.innerText = showPgText;
+    vacVal.innerText = vac.toFixed(2)+" kPa";
+    statusDom.innerText = status;
+
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+
+    const leftX = w * 0.35;
+    const topY = 30;
+    const bottomY = h * 0.90;
+    const scaleHeight = bottomY - topY;
+    const maxRange = 200;
+
+    // 垂直坐标轴
+    ctx.strokeStyle="#666";
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.moveTo(leftX, topY);
+    ctx.lineTo(leftX, bottomY);
+    ctx.stroke();
+
+    // 大气压P0 水平虚线
+    const posP0 = bottomY - scaleHeight * (P0 / maxRange);
+    ctx.strokeStyle="#1f4e96";
+    ctx.setLineDash([4,4]);
+    ctx.beginPath();
+    ctx.moveTo(leftX, posP0);
+    ctx.lineTo(leftX + 140, posP0);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle="#1f4e96";
+    ctx.font="13px sans-serif";
+    ctx.fillText("大气压 P₀=101.3kPa", leftX+10, posP0-6);
+
+    // 当前绝对压力位置
+    const posPa = bottomY - scaleHeight * (Pa / maxRange);
+    ctx.fillStyle="#d63031";
+    ctx.fillRect(leftX-40, posPa-4, 40, 8);
+    ctx.fillText("Pₐ", leftX-55, posPa+4);
+
+    // 绘制区域：Pa>P0（表压，向上）；Pa<P0（真空度，向下）
+    if(Pa > P0){
+        ctx.fillStyle="rgba(39, 174, 106, 0.5)";
+        ctx.fillRect(leftX, posPa, 60, posP0-posPa);
+        ctx.fillStyle="#111";
+        ctx.fillText("表压", leftX+12, (posPa+posP0)/2);
+    }else if(Pa < P0){
+        ctx.fillStyle="rgba(9, 132, 227, 0.5)";
+        ctx.fillRect(leftX, posP0, 60, posPa-posP0);
+        ctx.fillStyle="#111";
+        ctx.fillText("真空度", leftX+6, (posPa+posP0)/2);
+    }
+
+    // 刻度标记
+    ctx.fillStyle="#666";
+    ctx.font="11px sans-serif";
+    for(let val=0;val<=200;val+=40){
+        const y = bottomY - scaleHeight*(val/maxRange);
+        ctx.beginPath();
+        ctx.moveTo(leftX-8,y);
+        ctx.lineTo(leftX,y);
+        ctx.stroke();
+        ctx.fillText(String(val),leftX-32,y+4);
+    }
+}
+
+// 滑块拖动同步输入框
+slider.addEventListener("input",()=>{
+    setPaValue(slider.value);
+});
+// 输入框回车/失去焦点同步滑块
+paInput.addEventListener("change",()=>{
+    setPaValue(paInput.value);
+});
+paInput.addEventListener("keydown",(e)=>{
+    if(e.key==="Enter") setPaValue(paInput.value);
+});
+
+resizeCanvas();
+</script>
+</body>
+</html>
