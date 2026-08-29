@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>U型管压差计-管路流速演示</title>
+<!--引入MathJax渲染数学公式-->
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:"Microsoft Yahei",sans-serif;}
+body{background:#f0f4f8;padding:20px;color:#222;}
+.container{max-width:920px;margin:0 auto;background:#fff;padding:24px;border-radius:12px;box-shadow:0 2px 12px #00000018;}
+h1{text-align:center;font-size:22px;margin-bottom:16px;color:#1f4e96;}
+.formula{background:#e8f0fc;padding:14px;border-radius:8px;margin-bottom:16px;line-height:2.0;font-size:16px;}
+.canvas-wrap{width:100%;height:420px;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;margin-bottom:16px;}
+#canvas{width:100%;height:100%;display:block;}
+.ctrl-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;}
+.ctrl-item label{display:block;margin-bottom:4px;font-weight:500;font-size:14px;}
+.ctrl-item input[type="range"]{width:100%;}
+.ctrl-item .val-show{margin-top:4px;color:#c0392b;font-weight:bold;}
+.result-box{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:10px;}
+.card{background:#f7f9fc;padding:12px;border-radius:8px;text-align:center;}
+.card .val{font-size:18px;font-weight:bold;margin-top:4px;color:#c0392b;}
+.note{margin-top:20px;font-size:14px;color:#555;line-height:1.7;}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>管路U型管压差计演示</h1>
+<div class="formula">
+<strong>原理：伯努利方程 + U型管压差计</strong><br>
+管路压差与流速关系：\(\Delta P = P_1-P_2=\dfrac12\rho u^2\)<br>
+U型管读数公式：\(\Delta P = (\rho_0-\rho)gR\)<br>
+联立得到：\(\boldsymbol{\dfrac12\rho u^2=(\rho_0-\rho)gR}\)<br>
+ρ₀：指示液密度；ρ：管路流体密度；g=9.81m/s²<br>
+管路流速增大，两点压差增大，U型管液面差R随之增大。
+</div>
+
+<div class="canvas-wrap">
+<canvas id="canvas"></canvas>
+</div>
+
+<div class="ctrl-row">
+<div class="ctrl-item">
+<label>管路流体密度 ρ (kg/m³)</label>
+<input type="range" id="rhoSlider" min="500" max="1200" step="1" value="1000"/>
+<div class="val-show" id="rhoVal">1000 kg/m³</div>
+</div>
+<div class="ctrl-item">
+<label>U型指示液密度 ρ₀ (kg/m³)</label>
+<input type="range" id="rho0Slider" min="1200" max="14000" step="10" value="13600"/>
+<div class="val-show" id="rho0Val">13600 kg/m³</div>
+</div>
+<div class="ctrl-item">
+<label>管路流速 u (m/s)</label>
+<input type="range" id="uSlider" min="0" max="8" step="0.05" value="2.0"/>
+<div class="val-show" id="uVal">2.00 m/s</div>
+</div>
+</div>
+
+<div class="result-box">
+<div class="card">
+<div>压差 ΔP</div>
+<div class="val" id="dpVal">0.00 Pa</div>
+</div>
+<div class="card">
+<div>U型读数 R</div>
+<div class="val" id="rVal">0.000 m</div>
+</div>
+<div class="card">
+<div>说明</div>
+<div class="val" id="tip">流动</div>
+</div>
+</div>
+
+<div class="note">
+说明：<br>
+1. 流体从左向右流动，增大流速 → 压差变大 → U型管两侧液面高度差R变大；<br>
+2. 指示液密度ρ₀越大，相同压差下读数R越小；<br>
+3. 管路流体密度ρ越大，相同压差下读数R越小；<br>
+4. ρ₀必须大于ρ，压差计方可正常读数。
+</div>
+</div>
+
+<script>
+const g = 9.81;
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const rhoSlider = document.getElementById("rhoSlider");
+const rho0Slider = document.getElementById("rho0Slider");
+const uSlider = document.getElementById("uSlider");
+
+const rhoVal = document.getElementById("rhoVal");
+const rho0Val = document.getElementById("rho0Val");
+const uVal = document.getElementById("uVal");
+const dpVal = document.getElementById("dpVal");
+const rVal = document.getElementById("rVal");
+const tip = document.getElementById("tip");
+
+function resize(){
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    render();
+}
+
+//绘制圆角矩形管路
+function drawPipeRect(x,y,w,h){
+    const r = 4;
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.lineTo(x+w-r,y);
+    ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);
+    ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+    ctx.lineTo(x+r,y+h);
+    ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+    ctx.lineTo(x,y+r);
+    ctx.quadraticCurveTo(x,y,x+r,y);
+    ctx.closePath();
+}
+
+function drawRightArrow(x, y, size){
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - size * 0.7, y - size * 0.4);
+    ctx.lineTo(x - size * 0.7, y + size * 0.4);
+    ctx.closePath();
+    ctx.fill();
+}
+
+function calc(){
+    const rho = Number(rhoSlider.value);
+    const rho0 = Number(rho0Slider.value);
+    const u = Number(uSlider.value);
+    const dP = 0.5 * rho * u * u;
+    let R = 0;
+    let status = "";
+    if(rho0 <= rho){
+        R = 0;
+        status = "ρ₀需大于ρ";
+    }else if(Math.abs(u)<0.001){
+        R = 0;
+        status = "静止";
+    }else{
+        R = dP / ((rho0 - rho)*g);
+        status = "流动";
+    }
+    return {rho,rho0,u,dP,R,status};
+}
+
+function render(){
+    const {rho,rho0,u,dP,R,status}=calc();
+    rhoVal.innerText = rho.toFixed(0)+" kg/m³";
+    rho0Val.innerText = rho0.toFixed(0)+" kg/m³";
+    uVal.innerText = u.toFixed(2)+" m/s";
+    dpVal.innerText = dP.toFixed(2)+" Pa";
+    rVal.innerText = R.toFixed(4)+" m";
+    tip.innerText = status;
+
+    const w = canvas.width;
+    const h = canvas.height;
+    if(w===0 || h===0) return;
+    ctx.clearRect(0,0,w,h);
+
+    const pipeY = h*0.28;
+    const pipeH = 30;
+    const p1X = w*0.34;
+    const p2X = w*0.62;
+
+    //主水平管路
+    drawPipeRect(40,pipeY,w-80,pipeH);
+    ctx.fillStyle="#a0d8f5";
+    ctx.fill();
+    ctx.strokeStyle="#333";
+    ctx.lineWidth=2;
+    ctx.stroke();
+
+    //全部黑色箭头朝右
+    if(u>0.1){
+        ctx.fillStyle="#000000";
+        const arrowSize = 16;
+        for(let x=100;x<w-100;x+=110){
+            drawRightArrow(x, pipeY+pipeH/2, arrowSize);
+        }
+    }
+
+    const topU = pipeY + pipeH;
+    const bottomU = h*0.86;
+    const tubeOuterW = 44;
+    const tubeInnerW = 28;
+
+    //U管上端口严格对齐P1、P2
+    const uLeftTopX = p1X;
+    const uRightTopX = p2X;
+
+    //U型管黑色外轮廓
+    ctx.beginPath();
+    ctx.lineWidth=3;
+    ctx.strokeStyle="#000000";
+    ctx.moveTo(uLeftTopX, topU);
+    ctx.lineTo(uLeftTopX, bottomU);
+    const uCenterX = (uLeftTopX + uRightTopX)/2;
+    ctx.quadraticCurveTo(uLeftTopX,bottomU+tubeOuterW, uCenterX, bottomU+tubeOuterW);
+    ctx.quadraticCurveTo(uRightTopX,bottomU+tubeOuterW, uRightTopX, bottomU);
+    ctx.lineTo(uRightTopX, topU);
+    ctx.stroke();
+
+    //U管内部白色管壁
+    drawPipeRect(uLeftTopX, topU, tubeOuterW, bottomU-topU);
+    ctx.fillStyle="#ffffff";
+    ctx.fill();
+    drawPipeRect(uRightTopX-tubeOuterW, topU, tubeOuterW, bottomU-topU);
+    ctx.fillStyle="#ffffff";
+    ctx.fill();
+    drawPipeRect(uLeftTopX, bottomU-tubeOuterW, uRightTopX-uLeftTopX, tubeOuterW);
+    ctx.fillStyle="#ffffff";
+    ctx.fill();
+
+    //垂直引压管，仅P1 P2两处接口
+    const pressTubeW =14;
+    drawPipeRect(p1X - pressTubeW/2, pipeY+pipeH, pressTubeW, topU-(pipeY+pipeH));
+    ctx.fillStyle="#a0d8f5";
+    ctx.fill();
+    ctx.strokeStyle="#000000";
+    ctx.lineWidth=2;
+    ctx.stroke();
+
+    drawPipeRect(p2X - pressTubeW/2, pipeY+pipeH, pressTubeW, topU-(pipeY+pipeH));
+    ctx.fillStyle="#a0d8f5";
+    ctx.fill();
+    ctx.stroke();
+
+    const maxRdraw =130;
+    let rDraw = R * 420;
+    rDraw = Math.min(rDraw,maxRdraw);
+
+    const baseY = bottomU - 90;
+    const leftLiqY = baseY + rDraw/2;
+    const rightLiqY = baseY - rDraw/2;
+
+    //U管液体：上浅蓝色被测流体，下红色指示液
+    drawPipeRect(uLeftTopX+8, topU, tubeInnerW, leftLiqY - topU);
+    ctx.fillStyle="#a0d8f5";
+    ctx.fill();
+    drawPipeRect(uLeftTopX+8, leftLiqY, tubeInnerW, bottomU-leftLiqY);
+    ctx.fillStyle="#dc4444";
+    ctx.fill();
+
+    drawPipeRect(uRightTopX-tubeOuterW+8, topU, tubeInnerW, rightLiqY - topU);
+    ctx.fillStyle="#a0d8f5";
+    ctx.fill();
+    drawPipeRect(uRightTopX-tubeOuterW+8, rightLiqY, tubeInnerW, bottomU-rightLiqY);
+    ctx.fillStyle="#dc4444";
+    ctx.fill();
+
+    drawPipeRect(uLeftTopX+8, bottomU-tubeOuterW+8, (uRightTopX-uLeftTopX)-16, tubeOuterW-12);
+    ctx.fillStyle="#dc4444";
+    ctx.fill();
+
+    //液面虚线标记
+    ctx.strokeStyle="#222";
+    ctx.setLineDash([5,3]);
+    ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(uLeftTopX-14,leftLiqY);ctx.lineTo(uLeftTopX-2,leftLiqY);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(uRightTopX+2,rightLiqY);ctx.lineTo(uRightTopX+14,rightLiqY);ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle="#000000";
+    ctx.font="13px sans-serif";
+    ctx.fillText("R读数",uRightTopX+18,(leftLiqY+rightLiqY)/2);
+    ctx.fillText("P₁(高压)",p1X-30,pipeY-6);
+    ctx.fillText("P₂(低压)",p2X-30,pipeY-6);
+}
+
+rhoSlider.addEventListener("input",render);
+rho0Slider.addEventListener("input",render);
+uSlider.addEventListener("input",render);
+window.addEventListener("resize",resize);
+
+window.onload = function(){
+    resize();
+    //触发MathJax重新渲染公式
+    if(window.MathJax){
+        MathJax.typeset();
+    }
+};
+</script>
+</body>
+</html>
